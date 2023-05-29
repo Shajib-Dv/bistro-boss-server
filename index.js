@@ -27,21 +27,31 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     client.connect();
 
+    const userCollection = client.db("BistroDB").collection("users");
     const menuCollection = client.db("BistroDB").collection("menu");
     const reviewCollection = client.db("BistroDB").collection("reviews");
     const cardCollection = client.db("BistroDB").collection("cards");
 
+    //user related routes
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      const userInfo = await userCollection.insertOne(user);
+      res.send(userInfo);
+    });
+
+    // menu related routes
     app.get("/menu", async (req, res) => {
       const result = await menuCollection.find().toArray();
       res.send(result);
     });
 
+    //review related routes
     app.get("/reviews", async (req, res) => {
       const result = await reviewCollection.find().toArray();
       res.send(result);
     });
 
-    //save card info to database
+    //cart related routes
 
     app.get("/carts", async (req, res) => {
       const email = req.query.email;
