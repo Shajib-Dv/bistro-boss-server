@@ -1,6 +1,7 @@
 /** @format */
 
 const express = require("express");
+const jwt = require("jsonwebtoken");
 const app = express();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
@@ -10,6 +11,28 @@ const port = process.env.PORT || 5000;
 // middleware
 app.use(cors());
 app.use(express.json());
+
+//verify jwt
+const verifyJWT = (req, res, next) => {
+  const authorization = req.headers.authorization;
+
+  if (!authorization) {
+    return res
+      .status(401)
+      .send({ error: true, message: "unauthorized access" });
+  }
+
+  const token = authorization.split(" ")[1];
+  jwt.verify(token, process.env.ACCESS_TOKEN, (error, decoded) => {
+    if (error) {
+      return res
+        .status(401)
+        .send({ error: true, message: "unauthorized access !" });
+    }
+    req.decoded = decoded;
+    next();
+  });
+};
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.3xvt9wb.mongodb.net/?retryWrites=true&w=majority`;
 
@@ -32,11 +55,44 @@ async function run() {
     const reviewCollection = client.db("BistroDB").collection("reviews");
     const cardCollection = client.db("BistroDB").collection("cards");
 
+    //jwt routes
+    app.post("/jwt", (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN, {
+        expiresIn: "1h",
+      });
+
+      res.send({ token });
+    });
+
     //user related routes
+    app.get("/users", async (req, res) => {
+      const users = await userCollection.find().toArray();
+      res.send(users);
+    });
+
     app.post("/users", async (req, res) => {
       const user = req.body;
+      const existingUser = await userCollection.findOne({ email: user.email });
+
+      if (existingUser) {
+        return res.send({ message: "user already exist !" });
+      }
+
       const userInfo = await userCollection.insertOne(user);
       res.send(userInfo);
+    });
+
+    //update user role
+    app.patch("/users/admin/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: { role: "admin" },
+      };
+      const result = await userCollection.updateOne(filter, updatedDoc);
+
+      res.send(result);
     });
 
     // menu related routes
@@ -53,11 +109,19 @@ async function run() {
 
     //cart related routes
 
-    app.get("/carts", async (req, res) => {
+    app.get("/carts", verifyJWT, async (req, res) => {
       const email = req.query.email;
       if (!email) {
         res.send([]);
       }
+
+      const decodedEmail = req.decoded.email;
+      if (email !== decodedEmail) {
+        return res
+          .status(403)
+          .send({ error: true, message: "forbidden access" });
+      }
+
       const query = { email: email };
       const cartsInfo = await cardCollection.find(query).toArray();
       res.send(cartsInfo);
