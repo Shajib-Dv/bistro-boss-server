@@ -15,7 +15,6 @@ app.use(express.json());
 //verify jwt
 const verifyJWT = (req, res, next) => {
   const authorization = req.headers.authorization;
-
   if (!authorization) {
     return res
       .status(401)
@@ -65,10 +64,47 @@ async function run() {
       res.send({ token });
     });
 
+    //verify admin
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+
+      if (user?.role !== "admin") {
+        return res
+          .status(403)
+          .send({ error: true, message: "forbidden access" });
+      }
+
+      next();
+    };
+
     //user related routes
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyJWT, async (req, res) => {
       const users = await userCollection.find().toArray();
       res.send(users);
+    });
+
+    //get data by email
+    app.get("/users/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      res.send(user);
+    });
+
+    // check admin
+    app.get("/users/admin/:email", verifyJWT, verifyAdmin, async (req, res) => {
+      const email = req.params.email;
+
+      if (req.decoded.email !== email) {
+        res.send({ admin: false });
+      }
+
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      const result = { admin: user?.role === "admin" };
+      res.send(result);
     });
 
     app.post("/users", async (req, res) => {
