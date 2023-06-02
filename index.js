@@ -6,6 +6,7 @@ const app = express();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 require("dotenv").config();
+const stripe = require("stripe")(process.env.PAYMENT_SECRET_KEY);
 const port = process.env.PORT || 5000;
 
 // middleware
@@ -53,6 +54,7 @@ async function run() {
     const menuCollection = client.db("BistroDB").collection("menu");
     const reviewCollection = client.db("BistroDB").collection("reviews");
     const cardCollection = client.db("BistroDB").collection("cards");
+    const paymentCollection = client.db("BistroDB").collection("payments");
 
     //jwt routes
     app.post("/jwt", (req, res) => {
@@ -137,6 +139,21 @@ async function run() {
       res.send(result);
     });
 
+    app.post("/menu", verifyJWT, verifyAdmin, async (req, res) => {
+      const items = req.body;
+      const result = await menuCollection.insertOne(items);
+
+      res.send(result);
+    });
+
+    app.delete("/menu/:id", verifyJWT, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await menuCollection.deleteOne(query);
+
+      res.send(result);
+    });
+
     //review related routes
     app.get("/reviews", async (req, res) => {
       const result = await reviewCollection.find().toArray();
@@ -174,6 +191,35 @@ async function run() {
       const query = { _id: new ObjectId(id) };
       const remainingCart = await cardCollection.deleteOne(query);
       res.send(remainingCart);
+    });
+
+    //create payment intend
+    app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+      const { price } = req.body;
+      const amount = price * 100;
+      // console.log(price, amount);
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
+    });
+
+    //save payment
+    app.post("/payments", verifyJWT, async (req, res) => {
+      const payment = req.body;
+      const insertedResult = await paymentCollection.insertOne(payment);
+
+      const deletedQuery = {
+        _id: { $in: payment.cartItems.map((id) => new ObjectId(id)) },
+      };
+      const deletedResult = await cardCollection.deleteMany(deletedQuery);
+
+      res.send({ insertedResult, deletedResult });
     });
 
     // Send a ping to confirm a successful connection
