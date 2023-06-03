@@ -122,7 +122,7 @@ async function run() {
     });
 
     //update user role
-    app.patch("/users/admin/:id", async (req, res) => {
+    app.patch("/users/admin/:id", verifyJWT, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const updatedDoc = {
@@ -196,7 +196,7 @@ async function run() {
     //create payment intend
     app.post("/create-payment-intent", verifyJWT, async (req, res) => {
       const { price } = req.body;
-      const amount = price * 100;
+      const amount = parseInt(price * 100);
       // console.log(price, amount);
       const paymentIntent = await stripe.paymentIntents.create({
         amount: amount,
@@ -220,6 +220,53 @@ async function run() {
       const deletedResult = await cardCollection.deleteMany(deletedQuery);
 
       res.send({ insertedResult, deletedResult });
+    });
+
+    //admin stats
+    app.get("/admin-stats", verifyJWT, verifyAdmin, async (req, res) => {
+      const users = await userCollection.estimatedDocumentCount();
+      const orders = await paymentCollection.estimatedDocumentCount();
+      const products = await menuCollection.estimatedDocumentCount();
+
+      const productPrice = await paymentCollection.find().toArray();
+      const revenue = productPrice.reduce((sum, price) => price.price + sum, 0);
+
+      res.send({ users, orders, products, revenue });
+    });
+
+    //orders stats
+    app.get("/order-stats", verifyJWT, verifyAdmin, async (req, res) => {
+      const pipeline = [
+        {
+          $lookup: {
+            from: "menu",
+            localField: "foodId",
+            foreignField: "_id",
+            as: "foodId",
+          },
+        },
+        {
+          $unwind: "$foodId",
+        },
+        {
+          $group: {
+            _id: "$foodId.category",
+            count: { $sum: 1 },
+            total: { $sum: "$foodId.price" },
+          },
+        },
+        {
+          $project: {
+            category: "$_id",
+            count: 1,
+            total: { $round: ["$total", 2] },
+            _id: 0,
+          },
+        },
+      ];
+
+      const result = await paymentCollection.aggregate(pipeline).toArray();
+      res.send(result);
     });
 
     // Send a ping to confirm a successful connection
